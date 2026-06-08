@@ -10,19 +10,10 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-# -------------------------
-# DEBUG MODE
-# -------------------------
 DEBUG = st.secrets.get("DEBUG_MODE", False)
 
-# -------------------------
-# BASE PATH
-# -------------------------
 BASE_PATH = Path(__file__).resolve().parent.parent
 
-# -------------------------
-# LOAD ENV
-# -------------------------
 load_dotenv(BASE_PATH / ".env")
 api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
 
@@ -30,9 +21,6 @@ if not api_key:
     st.error("❌ API key not loaded")
     st.stop()
 
-# -------------------------
-# GEMINI
-# -------------------------
 @st.cache_resource
 def get_gemini_client():
     return genai.Client(api_key=api_key)
@@ -53,9 +41,6 @@ def call_gemini(prompt, retries=3):
             else:
                 return "⚠️ AI unavailable."
 
-# -------------------------
-# BIGQUERY
-# -------------------------
 @st.cache_resource
 def get_bq_client():
     credentials = service_account.Credentials.from_service_account_info(
@@ -65,19 +50,15 @@ def get_bq_client():
 
 bq = get_bq_client()
 
-# -------------------------
-# COST CONTROL
-# -------------------------
-JOB_CONFIG = QueryJobConfig(maximum_bytes_billed=1_000_000_000)
+JOB_CONFIG = QueryJobConfig(
+    maximum_bytes_billed=1_000_000_000
+)
 
-# -------------------------
-# APP UI
-# -------------------------
 st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
-# FILTERS
+# FILTER
 # -------------------------
 st.sidebar.header("Filters")
 
@@ -102,7 +83,6 @@ date_range = st.sidebar.date_input(
 )
 
 if not date_range or len(date_range) != 2:
-    st.warning("Please select a valid date range")
     st.stop()
 
 start_date, end_date = date_range
@@ -113,71 +93,39 @@ start_date, end_date = date_range
 @st.cache_data
 def load_data(start_date, end_date):
 
-    metrics = []
-
-    def run_query(query, name):
-        job = bq.query(query, job_config=JOB_CONFIG)
-        result = job.result()
-        df = result.to_dataframe()
-
-        if DEBUG:
-            bytes_processed = job.total_bytes_processed or 0
-            duration = (job.ended - job.created).total_seconds()
-
-            metrics.append({
-                "query": name,
-                "mb_processed": round(bytes_processed / (1024 * 1024), 3),
-                "duration_sec": round(duration, 2)
-            })
-
-        return df
-
     query_events = f"""
         SELECT user_id, event_type, event_date
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
     """
 
-    # dataset completo para cohort ✅
-    query_events_full = """
-        SELECT user_id, event_date
-        FROM `project-ecommerce-497614.saas_analytics.stg_events`
-    """
-
     query_dau = f"""
-        SELECT event_date,
-               COUNT(DISTINCT user_id) AS active_users
-        FROM `project-ecommerce-497614.saas_analytics.stg_events`
+        SELECT *
+        FROM `project-ecommerce-497614.saas_analytics.fct_dau`
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
-        GROUP BY event_date
-        ORDER BY event_date
     """
 
     query_funnel = f"""
-        SELECT event_type,
-               COUNT(DISTINCT user_id) AS users
-        FROM `project-ecommerce-497614.saas_analytics.stg_events`
-        WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
+        SELECT event_type, SUM(users) as users
+        FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
         GROUP BY event_type
-        ORDER BY users DESC
     """
 
-    df_events = run_query(query_events, "events")
-    df_events_full = run_query(query_events_full, "events_full")
-    df_dau = run_query(query_dau, "dau")
-    df_funnel = run_query(query_funnel, "funnel")
+    query_cohort = f"""
+        SELECT *
+        FROM `project-ecommerce-497614.saas_analytics.fct_cohort`
+        WHERE cohort_date BETWEEN '{start_date}' AND '{end_date}'
+    """
 
-    return df_events, df_events_full, df_dau, df_funnel, metrics
+    df_events = bq.query(query_events, job_config=JOB_CONFIG).to_dataframe()
+    df_dau = bq.query(query_dau, job_config=JOB_CONFIG).to_dataframe()
+    df_funnel = bq.query(query_funnel, job_config=JOB_CONFIG).to_dataframe()
+    df_cohort = bq.query(query_cohort, job_config=JOB_CONFIG).to_dataframe()
+
+    return df_events, df_dau, df_funnel, df_cohort
 
 
-df_events, df_events_full, df_dau, funnel_counts, metrics = load_data(start_date, end_date)
-
-# -------------------------
-# DEBUG SIDEBAR
-# -------------------------
-if DEBUG:
-    st.sidebar.subheader("⚙️ Query Debug")
-    st.sidebar.dataframe(pd.DataFrame(metrics))
+df_events, df_dau, funnel_counts, df_cohort = load_data(start_date, end_date)
 
 # -------------------------
 # KPIs
@@ -209,44 +157,24 @@ st.subheader("🔻 Funnel")
 st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), width="stretch")
 
 # -------------------------
-# ✅ CORRECT COHORT HEATMAP
+# ✅ COHORT HEATMAP DESDE BQ
 # -------------------------
 st.subheader("🔥 Retention Cohort")
 
-df_events_full["event_date"] = pd.to_datetime(df_events_full["event_date"])
-df_events_full["cohort_date"] = df_events_full.groupby("user_id")["event_date"].transform("min")
-
-df_events_full["days_since_signup"] = (
-    df_events_full["event_date"] - df_events_full["cohort_date"]
-).dt.days
-
-cohort_data = (
-    df_events_full.groupby(["cohort_date", "days_since_signup"])["user_id"]
-    .nunique()
-    .reset_index()
-)
-
-cohort_pivot = cohort_data.pivot(
+pivot = df_cohort.pivot(
     index="cohort_date",
     columns="days_since_signup",
-    values="user_id"
+    values="retention_rate"
 )
 
-cohort_size = cohort_pivot.iloc[:, 0]
-retention = cohort_pivot.divide(cohort_size, axis=0) * 100
+pivot = (pivot * 100).fillna(0).round(1)
 
-# aplicar filtro sobre cohort_date ✅
-retention = retention.loc[
-    (retention.index >= pd.to_datetime(start_date)) &
-    (retention.index <= pd.to_datetime(end_date))
-]
-
-retention = retention.fillna(0).round(1).iloc[:, :15]
-
-st.dataframe(retention.style.format("{:.1f}%").background_gradient(cmap="Blues"))
+st.dataframe(
+    pivot.style.format("{:.1f}%").background_gradient(cmap="Blues")
+)
 
 # -------------------------
-# INSIGHTS
+# AI
 # -------------------------
 st.subheader("🤖 AI Insights")
 
@@ -265,7 +193,7 @@ if st.button("Explain this dashboard"):
         st.write(call_gemini(prompt))
 
 # -------------------------
-# CHAT (AL FINAL)
+# CHAT (FINAL)
 # -------------------------
 st.subheader("💬 Ask your data")
 
@@ -293,8 +221,7 @@ if user_input:
     {user_input}
     """
 
-    with st.spinner("Thinking..."):
-        answer = call_gemini(prompt)
-
+    answer = call_gemini(prompt)
     st.chat_message("assistant").write(answer)
+
     st.session_state.messages.append({"role": "assistant", "content": answer})

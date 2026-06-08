@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: stg_events
+    description: "Cleaned events data"
+
+    columns:
+      - name: user_id
+        description: "User identifier"
+        tests:
+          - not_null
+
+      - name: event_date
+        description: "Event date"
+        tests:
+          - not_null
+
+      - name: event_type
+        description: "Event type"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['signup', 'create_project', 'other']
+

@@ -14,3 +14,8 @@ logs/
 
 keys/
 gcp-service-account.json
+
+
+target/
+dbt_packages/
+*.log

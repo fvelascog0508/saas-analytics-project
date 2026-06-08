@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from google.cloud import bigquery
+from google.oauth2 import service_account
 from dotenv import load_dotenv
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ from google import genai
 BASE_PATH = Path(__file__).resolve().parent.parent
 
 # -------------------------
-# LOAD ENV
+# LOAD ENV (LOCAL)
 # -------------------------
 load_dotenv(BASE_PATH / ".env")
 
@@ -34,7 +35,7 @@ def get_gemini_client():
 client_ai = get_gemini_client()
 
 # -------------------------
-# GEMINI FUNCTION
+# GEMINI CALL
 # -------------------------
 def call_gemini(prompt, retries=3):
     for i in range(retries):
@@ -51,11 +52,14 @@ def call_gemini(prompt, retries=3):
                 return "⚠️ AI unavailable right now."
 
 # -------------------------
-# BIGQUERY CLIENT (CACHE)
+# BIGQUERY CLIENT (CLOUD SAFE)
 # -------------------------
 @st.cache_resource
 def get_bq_client():
-    return bigquery.Client()
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    return bigquery.Client(credentials=credentials)
 
 bq = get_bq_client()
 
@@ -65,15 +69,18 @@ bq = get_bq_client()
 @st.cache_data
 def load_data():
     df_events = bq.query("""
-        SELECT * FROM `project-ecommerce-497614.saas_analytics.stg_events`
+        SELECT * 
+        FROM `project-ecommerce-497614.saas_analytics.stg_events`
     """).to_dataframe()
 
     df_dau = bq.query("""
-        SELECT * FROM `project-ecommerce-497614.saas_analytics.fct_dau`
+        SELECT * 
+        FROM `project-ecommerce-497614.saas_analytics.fct_dau`
     """).to_dataframe()
 
     df_funnel = bq.query("""
-        SELECT * FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
+        SELECT * 
+        FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
     """).to_dataframe()
 
     return df_events, df_dau, df_funnel
@@ -83,16 +90,8 @@ df_events, df_dau, funnel_counts = load_data()
 # -------------------------
 # APP CONFIG
 # -------------------------
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
-
-# -------------------------
-# FILTERS
-# -------------------------
-st.sidebar.header("Filters")
-
-channels = ["All"] + sorted(df_events.get("channel", ["unknown"]).unique())
-selected_channel = st.sidebar.selectbox("Channel", channels)
 
 # -------------------------
 # KPIs
@@ -100,28 +99,34 @@ selected_channel = st.sidebar.selectbox("Channel", channels)
 col1, col2, col3 = st.columns(3)
 
 total_users = df_events["user_id"].nunique()
-
 avg_events = df_events.groupby("user_id").size().mean()
 
 conversion = 0
 if "create_project" in funnel_counts["event_type"].values:
     signup = funnel_counts.loc[funnel_counts["event_type"] == "signup", "users"].values
     create = funnel_counts.loc[funnel_counts["event_type"] == "create_project", "users"].values
+
     if len(signup) > 0:
         conversion = create[0] / signup[0]
 
 col1.metric("Total Users", total_users)
 col2.metric("Avg Events/User", round(avg_events, 2))
-col3.metric("Activation", f"{conversion:.2%}")
+col3.metric("Activation Rate", f"{conversion:.2%}")
 
 # -------------------------
 # CHARTS
 # -------------------------
 st.subheader("📈 Daily Active Users")
-st.plotly_chart(px.line(df_dau, x="event_date", y="active_users"), use_container_width=True)
+st.plotly_chart(
+    px.line(df_dau, x="event_date", y="active_users"),
+    use_container_width=True
+)
 
 st.subheader("🔻 Funnel")
-st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), use_container_width=True)
+st.plotly_chart(
+    px.bar(funnel_counts, x="event_type", y="users"),
+    use_container_width=True
+)
 
 # -------------------------
 # AI INSIGHTS

@@ -207,6 +207,75 @@ st.plotly_chart(
 )
 
 # -------------------------
+# AI INSIGHTS
+# -------------------------
+st.subheader("🤖 AI Insights")
+
+if st.button("Explain this dashboard"):
+
+    prompt = f"""
+    You are a senior product analyst.
+
+    Analyze this SaaS dashboard:
+
+    Funnel:
+    {funnel_counts.to_string(index=False)}
+
+    DAU:
+    {df_dau.to_string(index=False)}
+
+    Provide clear insights on:
+    - user behavior
+    - funnel performance
+    - potential issues
+    - recommendations
+    """
+
+    with st.spinner("Analyzing..."):
+        answer = call_gemini(prompt)
+
+    st.write(answer)
+
+
+# -------------------------
+# CHAT
+# -------------------------
+st.subheader("💬 Ask your data")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+user_input = st.chat_input("Ask something...")
+
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    st.chat_message("user").write(user_input)
+
+    prompt = f"""
+    You are a product analyst.
+
+    Funnel:
+    {funnel_counts.to_string(index=False)}
+
+    DAU:
+    {df_dau.to_string(index=False)}
+
+    Question:
+    {user_input}
+    """
+
+    with st.spinner("Thinking..."):
+        answer = call_gemini(prompt)
+
+    st.chat_message("assistant").write(answer)
+    st.session_state.messages.append({"role": "assistant", "content": answer})
+
+
+# -------------------------
 # DEBUG PANEL (ONLY IF ENABLED)
 # -------------------------
 if DEBUG:

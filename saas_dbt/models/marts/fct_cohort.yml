@@ -15,9 +15,7 @@ models:
       - name: retention_rate
         tests:
           - not_null
-
-      - name: retention_rate
-        tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 1
+              arguments:
+                min_value: 0
+                max_value: 1

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # -------------------------
-# DEBUG MODE (OFF by default)
+# DEBUG MODE
 # -------------------------
 DEBUG = st.secrets.get("DEBUG_MODE", False)
 
@@ -68,9 +68,7 @@ bq = get_bq_client()
 # -------------------------
 # COST CONTROL
 # -------------------------
-JOB_CONFIG = QueryJobConfig(
-    maximum_bytes_billed=1_000_000_000  # 1GB
-)
+JOB_CONFIG = QueryJobConfig(maximum_bytes_billed=1_000_000_000)
 
 # -------------------------
 # APP UI
@@ -79,16 +77,14 @@ st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
-# DATE FILTER
+# FILTERS
 # -------------------------
 st.sidebar.header("Filters")
 
 @st.cache_data
 def get_date_range():
     query = """
-        SELECT 
-            MIN(event_date) AS min_date,
-            MAX(event_date) AS max_date
+        SELECT MIN(event_date) AS min_date, MAX(event_date) AS max_date
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
     """
     return bq.query(query, job_config=JOB_CONFIG).to_dataframe()
@@ -110,13 +106,6 @@ if not date_range or len(date_range) != 2:
     st.stop()
 
 start_date, end_date = date_range
-
-# -------------------------
-# DEBUG PANEL (ONLY IF ENABLED)
-# -------------------------
-if DEBUG:
-    st.sidebar.subheader("⚙️ Query Debug")
-    st.sidebar.dataframe(pd.DataFrame(metrics))
 
 # -------------------------
 # LOAD DATA
@@ -149,10 +138,15 @@ def load_data(start_date, end_date):
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
     """
 
+    # dataset completo para cohort ✅
+    query_events_full = """
+        SELECT user_id, event_date
+        FROM `project-ecommerce-497614.saas_analytics.stg_events`
+    """
+
     query_dau = f"""
-        SELECT
-            event_date,
-            COUNT(DISTINCT user_id) AS active_users
+        SELECT event_date,
+               COUNT(DISTINCT user_id) AS active_users
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
         GROUP BY event_date
@@ -160,9 +154,8 @@ def load_data(start_date, end_date):
     """
 
     query_funnel = f"""
-        SELECT
-            event_type,
-            COUNT(DISTINCT user_id) AS users
+        SELECT event_type,
+               COUNT(DISTINCT user_id) AS users
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
         GROUP BY event_type
@@ -170,13 +163,21 @@ def load_data(start_date, end_date):
     """
 
     df_events = run_query(query_events, "events")
+    df_events_full = run_query(query_events_full, "events_full")
     df_dau = run_query(query_dau, "dau")
     df_funnel = run_query(query_funnel, "funnel")
 
-    return df_events, df_dau, df_funnel, metrics
+    return df_events, df_events_full, df_dau, df_funnel, metrics
 
 
-df_events, df_dau, funnel_counts, metrics = load_data(start_date, end_date)
+df_events, df_events_full, df_dau, funnel_counts, metrics = load_data(start_date, end_date)
+
+# -------------------------
+# DEBUG SIDEBAR
+# -------------------------
+if DEBUG:
+    st.sidebar.subheader("⚙️ Query Debug")
+    st.sidebar.dataframe(pd.DataFrame(metrics))
 
 # -------------------------
 # KPIs
@@ -202,95 +203,69 @@ col3.metric("Activation Rate", f"{conversion:.2%}")
 # CHARTS
 # -------------------------
 st.subheader("📈 Daily Active Users")
-st.plotly_chart(
-    px.line(df_dau, x="event_date", y="active_users"),
-    width="stretch"
-)
+st.plotly_chart(px.line(df_dau, x="event_date", y="active_users"), width="stretch")
 
 st.subheader("🔻 Funnel")
-st.plotly_chart(
-    px.bar(funnel_counts, x="event_type", y="users"),
-    width="stretch"
-)
+st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), width="stretch")
 
 # -------------------------
-# RETENTION COHORT HEATMAP
+# ✅ CORRECT COHORT HEATMAP
 # -------------------------
 st.subheader("🔥 Retention Cohort")
 
-# asegurar tipos
-df_events["event_date"] = pd.to_datetime(df_events["event_date"])
+df_events_full["event_date"] = pd.to_datetime(df_events_full["event_date"])
+df_events_full["cohort_date"] = df_events_full.groupby("user_id")["event_date"].transform("min")
 
-# cohort (primer día activo)
-df_events["cohort_date"] = df_events.groupby("user_id")["event_date"].transform("min")
-
-# días desde el signup
-df_events["days_since_signup"] = (
-    df_events["event_date"] - df_events["cohort_date"]
+df_events_full["days_since_signup"] = (
+    df_events_full["event_date"] - df_events_full["cohort_date"]
 ).dt.days
 
-# usuarios únicos por cohorte y día
 cohort_data = (
-    df_events
-    .groupby(["cohort_date", "days_since_signup"])["user_id"]
+    df_events_full.groupby(["cohort_date", "days_since_signup"])["user_id"]
     .nunique()
     .reset_index()
 )
 
-# pivot
 cohort_pivot = cohort_data.pivot(
     index="cohort_date",
     columns="days_since_signup",
     values="user_id"
 )
 
-# ✅ NORMALIZAR (clave)
 cohort_size = cohort_pivot.iloc[:, 0]
-retention = cohort_pivot.divide(cohort_size, axis=0)
+retention = cohort_pivot.divide(cohort_size, axis=0) * 100
 
-# convertir a %
-retention = retention * 100
+# aplicar filtro sobre cohort_date ✅
+retention = retention.loc[
+    (retention.index >= pd.to_datetime(start_date)) &
+    (retention.index <= pd.to_datetime(end_date))
+]
 
-# limitar columnas (opcional, mejora visual)
-retention = retention.iloc[:, :15]
+retention = retention.fillna(0).round(1).iloc[:, :15]
 
-# ✅ HEATMAP REAL
 st.dataframe(retention.style.format("{:.1f}%").background_gradient(cmap="Blues"))
 
-
 # -------------------------
-# AI INSIGHTS
+# INSIGHTS
 # -------------------------
 st.subheader("🤖 AI Insights")
 
 if st.button("Explain this dashboard"):
-
     prompt = f"""
-    You are a senior product analyst.
-
-    Analyze this SaaS dashboard:
+    Analyze SaaS metrics:
 
     Funnel:
     {funnel_counts.to_string(index=False)}
 
     DAU:
     {df_dau.to_string(index=False)}
-
-    Provide clear insights on:
-    - user behavior
-    - funnel performance
-    - potential issues
-    - recommendations
     """
 
     with st.spinner("Analyzing..."):
-        answer = call_gemini(prompt)
-
-    st.write(answer)
-
+        st.write(call_gemini(prompt))
 
 # -------------------------
-# CHAT
+# CHAT (AL FINAL)
 # -------------------------
 st.subheader("💬 Ask your data")
 
@@ -308,8 +283,6 @@ if user_input:
     st.chat_message("user").write(user_input)
 
     prompt = f"""
-    You are a product analyst.
-
     Funnel:
     {funnel_counts.to_string(index=False)}
 
@@ -325,6 +298,3 @@ if user_input:
 
     st.chat_message("assistant").write(answer)
     st.session_state.messages.append({"role": "assistant", "content": answer})
-
-
-

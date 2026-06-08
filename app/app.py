@@ -168,12 +168,12 @@ st.plotly_chart(
         x="event_date",
         y="active_users"
     ),
-    use_container_width=True
+    width="stretch"
 )
 
 
 st.subheader("🔻 Funnel")
-st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), use_container_width=True)
+st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), width="stretch")
 
 # -------------------------
 # ✅ COHORT HEATMAP DESDE BQ
@@ -183,8 +183,10 @@ st.subheader("🔥 Retention Cohort")
 if df_cohort.empty:
     st.warning("No cohort data available")
 else:
+    df_cohort["cohort_week"] = pd.to_datetime(df_cohort["cohort_date"]).dt.to_period("W").astype(str)
+
     pivot = df_cohort.pivot_table(
-        index="cohort_date",
+        index="cohort_week",
         columns="days_since_signup",
         values="retention_rate",
         aggfunc="mean"
@@ -194,12 +196,13 @@ else:
 
     fig = px.imshow(
         pivot,
-        labels=dict(x="Days since signup", y="Cohort", color="Retention %"),
+        labels=dict(x="Days since signup", y="Cohort (Week)", color="Retention %"),
         aspect="auto",
         color_continuous_scale="Blues"
     )
 
-    st.plotly_chart(fig, use_container_width=True)  # ✅ IMPORTANT
+    st.plotly_chart(fig, width="stretch")
+
 
 # -------------------------
 # AI

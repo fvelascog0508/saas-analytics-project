@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: fct_cohort
+
+    columns:
+      - name: cohort_date
+        tests:
+          - not_null
+
+      - name: days_since_signup
+        tests:
+          - not_null
+
+      - name: retention_rate
+        tests:
+          - not_null
+
+      - name: retention_rate
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1

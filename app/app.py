@@ -150,8 +150,18 @@ col3.metric("Activation Rate", f"{conversion:.2%}")
 # -------------------------
 # CHARTS
 # -------------------------
+df_dau = df_dau.sort_values("event_date")
+
 st.subheader("📈 Daily Active Users")
-st.plotly_chart(px.line(df_dau, x="event_date", y="active_users"), width="stretch")
+st.plotly_chart(
+    px.line(
+        df_dau,
+        x="event_date",
+        y="active_users"
+    ),
+    width="stretch"
+)
+
 
 st.subheader("🔻 Funnel")
 st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), width="stretch")
@@ -161,17 +171,25 @@ st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), width="stretch
 # -------------------------
 st.subheader("🔥 Retention Cohort")
 
-pivot = df_cohort.pivot(
-    index="cohort_date",
-    columns="days_since_signup",
-    values="retention_rate"
-)
+if df_cohort.empty:
+    st.warning("No cohort data available")
+else:
+    pivot = df_cohort.pivot_table(
+        index="cohort_date",
+        columns="days_since_signup",
+        values="retention_rate",
+        aggfunc="mean"
+    )
 
-pivot = (pivot * 100).fillna(0).round(1)
+    pivot = (pivot * 100).fillna(0)
 
-st.dataframe(
-    pivot.style.format("{:.1f}%").background_gradient(cmap="Blues")
-)
+    try:
+        st.dataframe(
+            pivot.style.format("{:.1f}%").background_gradient(cmap="Blues"),
+            use_container_width=True
+        )
+    except Exception:
+        st.dataframe(pivot)
 
 # -------------------------
 # AI

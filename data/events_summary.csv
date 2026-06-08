@@ -1,0 +1,6 @@
+event_type,total_events,unique_users
+create_project,397,397
+invite_user,776,535
+login,802,802
+signup,1000,1000
+upload_file,710,510

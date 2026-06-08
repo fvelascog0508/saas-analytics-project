@@ -1,0 +1,4 @@
+event_type,user_id,conversion_rate
+signup,1000,1.0
+login,802,0.802
+create_project,397,0.397

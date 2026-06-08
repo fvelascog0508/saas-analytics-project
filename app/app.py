@@ -26,7 +26,7 @@ if not api_key:
     st.stop()
 
 # -------------------------
-# GEMINI CLIENT (CACHE)
+# GEMINI CLIENT
 # -------------------------
 @st.cache_resource
 def get_gemini_client():
@@ -52,7 +52,7 @@ def call_gemini(prompt, retries=3):
                 return "⚠️ AI unavailable right now."
 
 # -------------------------
-# BIGQUERY CLIENT (CLOUD SAFE)
+# BIGQUERY CLIENT
 # -------------------------
 @st.cache_resource
 def get_bq_client():
@@ -98,7 +98,7 @@ st.title("📊 SaaS Analytics Dashboard")
 # -------------------------
 st.sidebar.header("Filters")
 
-# safe channel column
+# CHANNEL
 if "channel" in df_events.columns:
     channels = ["All"] + sorted(df_events["channel"].dropna().unique())
 else:
@@ -106,10 +106,31 @@ else:
 
 selected_channel = st.sidebar.selectbox("Channel", channels)
 
+# DATE FILTER
+if "event_date" in df_events.columns:
+    min_date = df_events["event_date"].min()
+    max_date = df_events["event_date"].max()
 
+    date_range = st.sidebar.date_input(
+        "Date range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+else:
+    date_range = None
+
+# APPLY FILTERS
 if selected_channel != "All" and "channel" in df_events.columns:
     df_events = df_events[df_events["channel"] == selected_channel]
 
+if date_range and len(date_range) == 2:
+    start_date, end_date = date_range
+
+    df_events = df_events[
+        (df_events["event_date"] >= pd.to_datetime(start_date)) &
+        (df_events["event_date"] <= pd.to_datetime(end_date))
+    ]
 
 # -------------------------
 # KPIs

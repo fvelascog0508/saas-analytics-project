@@ -9,6 +9,9 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
+# 🆕 IMPORTANTE (control de query)
+from google.cloud.bigquery import QueryJobConfig
+
 # -------------------------
 # BASE PATH
 # -------------------------
@@ -60,6 +63,14 @@ def get_bq_client():
 bq = get_bq_client()
 
 # -------------------------
+# CONFIG COST CONTROL
+# -------------------------
+# 💥 límite de 1GB por query
+JOB_CONFIG = QueryJobConfig(
+    maximum_bytes_billed=1_000_000_000
+)
+
+# -------------------------
 # APP UI
 # -------------------------
 st.set_page_config(page_title="SaaS Analytics", layout="wide")
@@ -70,7 +81,6 @@ st.title("📊 SaaS Analytics Dashboard")
 # -------------------------
 st.sidebar.header("Filters")
 
-# obtener rango de fechas
 @st.cache_data
 def get_date_range():
     query = """
@@ -79,7 +89,7 @@ def get_date_range():
             MAX(event_date) AS max_date
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
     """
-    return bq.query(query).to_dataframe()
+    return bq.query(query, job_config=JOB_CONFIG).to_dataframe()  # ✅ control aquí
 
 date_bounds = get_date_range()
 
@@ -93,7 +103,7 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
-# ✅ VALIDACIÓN ROBUSTA (CLAVE)
+# VALIDACIÓN SEGURA
 if not date_range or len(date_range) != 2:
     st.warning("Please select a valid date range")
     st.stop()
@@ -107,7 +117,7 @@ start_date, end_date = date_range
 def load_data(start_date, end_date):
 
     query_events = f"""
-        SELECT *
+        SELECT user_id, event_type, event_date
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
     """
@@ -132,9 +142,10 @@ def load_data(start_date, end_date):
         ORDER BY users DESC
     """
 
-    df_events = bq.query(query_events).to_dataframe()
-    df_dau = bq.query(query_dau).to_dataframe()
-    df_funnel = bq.query(query_funnel).to_dataframe()
+    # ✅ AQUÍ ES DONDE IMPORTA
+    df_events = bq.query(query_events, job_config=JOB_CONFIG).to_dataframe()
+    df_dau = bq.query(query_dau, job_config=JOB_CONFIG).to_dataframe()
+    df_funnel = bq.query(query_funnel, job_config=JOB_CONFIG).to_dataframe()
 
     return df_events, df_dau, df_funnel
 

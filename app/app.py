@@ -3,14 +3,17 @@ import pandas as pd
 import plotly.express as px
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from google.cloud.bigquery import QueryJobConfig
 import time
 from google import genai
 import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-# 🆕 IMPORTANTE (control de query)
-from google.cloud.bigquery import QueryJobConfig
+# -------------------------
+# DEBUG MODE (OFF by default)
+# -------------------------
+DEBUG = st.secrets.get("DEBUG_MODE", False)
 
 # -------------------------
 # BASE PATH
@@ -63,11 +66,10 @@ def get_bq_client():
 bq = get_bq_client()
 
 # -------------------------
-# CONFIG COST CONTROL
+# COST CONTROL
 # -------------------------
-# 💥 límite de 1GB por query
 JOB_CONFIG = QueryJobConfig(
-    maximum_bytes_billed=1_000_000_000
+    maximum_bytes_billed=1_000_000_000  # 1GB
 )
 
 # -------------------------
@@ -77,7 +79,7 @@ st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
-# SIDEBAR FILTER
+# DATE FILTER
 # -------------------------
 st.sidebar.header("Filters")
 
@@ -89,7 +91,7 @@ def get_date_range():
             MAX(event_date) AS max_date
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
     """
-    return bq.query(query, job_config=JOB_CONFIG).to_dataframe()  # ✅ control aquí
+    return bq.query(query, job_config=JOB_CONFIG).to_dataframe()
 
 date_bounds = get_date_range()
 
@@ -103,7 +105,6 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
-# VALIDACIÓN SEGURA
 if not date_range or len(date_range) != 2:
     st.warning("Please select a valid date range")
     st.stop()
@@ -111,10 +112,29 @@ if not date_range or len(date_range) != 2:
 start_date, end_date = date_range
 
 # -------------------------
-# LOAD DATA FROM BQ
+# LOAD DATA
 # -------------------------
 @st.cache_data
 def load_data(start_date, end_date):
+
+    metrics = []
+
+    def run_query(query, name):
+        job = bq.query(query, job_config=JOB_CONFIG)
+        result = job.result()
+        df = result.to_dataframe()
+
+        if DEBUG:
+            bytes_processed = job.total_bytes_processed or 0
+            duration = (job.ended - job.created).total_seconds()
+
+            metrics.append({
+                "query": name,
+                "mb_processed": round(bytes_processed / (1024 * 1024), 3),
+                "duration_sec": round(duration, 2)
+            })
+
+        return df
 
     query_events = f"""
         SELECT user_id, event_type, event_date
@@ -142,15 +162,14 @@ def load_data(start_date, end_date):
         ORDER BY users DESC
     """
 
-    # ✅ AQUÍ ES DONDE IMPORTA
-    df_events = bq.query(query_events, job_config=JOB_CONFIG).to_dataframe()
-    df_dau = bq.query(query_dau, job_config=JOB_CONFIG).to_dataframe()
-    df_funnel = bq.query(query_funnel, job_config=JOB_CONFIG).to_dataframe()
+    df_events = run_query(query_events, "events")
+    df_dau = run_query(query_dau, "dau")
+    df_funnel = run_query(query_funnel, "funnel")
 
-    return df_events, df_dau, df_funnel
+    return df_events, df_dau, df_funnel, metrics
 
 
-df_events, df_dau, funnel_counts = load_data(start_date, end_date)
+df_events, df_dau, funnel_counts, metrics = load_data(start_date, end_date)
 
 # -------------------------
 # KPIs
@@ -188,61 +207,8 @@ st.plotly_chart(
 )
 
 # -------------------------
-# AI INSIGHTS
+# DEBUG PANEL (ONLY IF ENABLED)
 # -------------------------
-st.subheader("🤖 AI Insights")
-
-if st.button("Explain this dashboard"):
-    prompt = f"""
-    You are a senior product analyst.
-
-    Funnel:
-    {funnel_counts.to_string(index=False)}
-
-    DAU:
-    {df_dau.to_string(index=False)}
-
-    Provide insights and recommendations.
-    """
-
-    with st.spinner("Analyzing..."):
-        answer = call_gemini(prompt)
-
-    st.write(answer)
-
-# -------------------------
-# CHAT
-# -------------------------
-st.subheader("💬 Ask your data")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
-
-user_input = st.chat_input("Ask something...")
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    st.chat_message("user").write(user_input)
-
-    prompt = f"""
-    You are a product analyst.
-
-    Funnel:
-    {funnel_counts.to_string(index=False)}
-
-    DAU:
-    {df_dau.to_string(index=False)}
-
-    Question:
-    {user_input}
-    """
-
-    with st.spinner("Thinking..."):
-        answer = call_gemini(prompt)
-
-    st.chat_message("assistant").write(answer)
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+if DEBUG:
+    st.subheader("⚙️ Query Debug")
+    st.dataframe(pd.DataFrame(metrics))

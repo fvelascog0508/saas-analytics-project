@@ -3,11 +3,11 @@ import pandas as pd
 import plotly.express as px
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from dotenv import load_dotenv
-import os
-from pathlib import Path
 import time
 from google import genai
+import os
+from dotenv import load_dotenv
+from pathlib import Path
 
 # -------------------------
 # BASE PATH
@@ -15,10 +15,9 @@ from google import genai
 BASE_PATH = Path(__file__).resolve().parent.parent
 
 # -------------------------
-# LOAD ENV (LOCAL)
+# LOAD ENV
 # -------------------------
 load_dotenv(BASE_PATH / ".env")
-
 api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
 
 if not api_key:
@@ -26,7 +25,7 @@ if not api_key:
     st.stop()
 
 # -------------------------
-# GEMINI CLIENT
+# GEMINI
 # -------------------------
 @st.cache_resource
 def get_gemini_client():
@@ -34,9 +33,6 @@ def get_gemini_client():
 
 client_ai = get_gemini_client()
 
-# -------------------------
-# GEMINI CALL
-# -------------------------
 def call_gemini(prompt, retries=3):
     for i in range(retries):
         try:
@@ -49,10 +45,10 @@ def call_gemini(prompt, retries=3):
             if i < retries - 1:
                 time.sleep(2)
             else:
-                return "⚠️ AI unavailable right now."
+                return "⚠️ AI unavailable."
 
 # -------------------------
-# BIGQUERY CLIENT
+# BIGQUERY
 # -------------------------
 @st.cache_resource
 def get_bq_client():
@@ -64,73 +60,84 @@ def get_bq_client():
 bq = get_bq_client()
 
 # -------------------------
-# LOAD DATA FROM BIGQUERY
-# -------------------------
-@st.cache_data
-def load_data():
-    df_events = bq.query("""
-        SELECT * 
-        FROM `project-ecommerce-497614.saas_analytics.stg_events`
-    """).to_dataframe()
-
-    df_dau = bq.query("""
-        SELECT * 
-        FROM `project-ecommerce-497614.saas_analytics.fct_dau`
-    """).to_dataframe()
-
-    df_funnel = bq.query("""
-        SELECT * 
-        FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
-    """).to_dataframe()
-
-    return df_events, df_dau, df_funnel
-
-df_events, df_dau, funnel_counts = load_data()
-
-# -------------------------
-# APP CONFIG
+# APP UI
 # -------------------------
 st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
-# SIDEBAR FILTERS
+# DATE FILTER (UI)
 # -------------------------
 st.sidebar.header("Filters")
 
-# CHANNEL
-if "channel" in df_events.columns:
-    channels = ["All"] + sorted(df_events["channel"].dropna().unique())
-else:
-    channels = ["All"]
+# Obtener rango de fechas desde BQ una vez
+@st.cache_data
+def get_date_range():
+    query = """
+        SELECT 
+            MIN(event_date) AS min_date,
+            MAX(event_date) AS max_date
+        FROM `project-ecommerce-497614.saas_analytics.stg_events`
+    """
+    return bq.query(query).to_dataframe()
 
-selected_channel = st.sidebar.selectbox("Channel", channels)
+date_bounds = get_date_range()
 
-# DATE FILTER
-if "event_date" in df_events.columns:
-    min_date = df_events["event_date"].min()
-    max_date = df_events["event_date"].max()
+min_date = date_bounds["min_date"][0]
+max_date = date_bounds["max_date"][0]
 
-    date_range = st.sidebar.date_input(
-        "Date range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
-else:
-    date_range = None
+date_range = st.sidebar.date_input(
+    "Date range",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date
+)
 
-# APPLY FILTERS
-if selected_channel != "All" and "channel" in df_events.columns:
-    df_events = df_events[df_events["channel"] == selected_channel]
+# -------------------------
+# LOAD FILTERED DATA (BQ)
+# -------------------------
+@st.cache_data
+def load_data(start_date, end_date):
 
-if date_range and len(date_range) == 2:
-    start_date, end_date = date_range
+    # EVENTS (filtrado en origen)
+    query_events = f"""
+        SELECT *
+        FROM `project-ecommerce-497614.saas_analytics.stg_events`
+        WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
+    """
 
-    df_events = df_events[
-        (df_events["event_date"] >= pd.to_datetime(start_date)) &
-        (df_events["event_date"] <= pd.to_datetime(end_date))
-    ]
+    # DAU recalculado con filtro
+    query_dau = f"""
+        SELECT
+            event_date,
+            COUNT(DISTINCT user_id) AS active_users
+        FROM `project-ecommerce-497614.saas_analytics.stg_events`
+        WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
+        GROUP BY event_date
+        ORDER BY event_date
+    """
+
+    # funnel recalculado
+    query_funnel = f"""
+        SELECT
+            event_type,
+            COUNT(DISTINCT user_id) AS users
+        FROM `project-ecommerce-497614.saas_analytics.stg_events`
+        WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
+        GROUP BY event_type
+        ORDER BY users DESC
+    """
+
+    df_events = bq.query(query_events).to_dataframe()
+    df_dau = bq.query(query_dau).to_dataframe()
+    df_funnel = bq.query(query_funnel).to_dataframe()
+
+    return df_events, df_dau, df_funnel
+
+
+# ejecutar carga con filtros
+start_date, end_date = date_range
+df_events, df_dau, funnel_counts = load_data(start_date, end_date)
 
 # -------------------------
 # KPIs
@@ -138,6 +145,7 @@ if date_range and len(date_range) == 2:
 col1, col2, col3 = st.columns(3)
 
 total_users = df_events["user_id"].nunique()
+
 avg_events = df_events.groupby("user_id").size().mean()
 
 conversion = 0
@@ -180,7 +188,7 @@ if st.button("Explain this dashboard"):
     {funnel_counts.to_string(index=False)}
 
     DAU:
-    {df_dau.head(20).to_string(index=False)}
+    {df_dau.to_string(index=False)}
 
     Provide insights and recommendations.
     """
@@ -215,7 +223,7 @@ if user_input:
     {funnel_counts.to_string(index=False)}
 
     DAU:
-    {df_dau.head(20).to_string(index=False)}
+    {df_dau.to_string(index=False)}
 
     Question:
     {user_input}

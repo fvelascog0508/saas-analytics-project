@@ -94,6 +94,24 @@ st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
+# SIDEBAR FILTERS
+# -------------------------
+st.sidebar.header("Filters")
+
+# safe channel column
+if "channel" in df_events.columns:
+    channels = ["All"] + sorted(df_events["channel"].dropna().unique())
+else:
+    channels = ["All"]
+
+selected_channel = st.sidebar.selectbox("Channel", channels)
+
+
+if selected_channel != "All" and "channel" in df_events.columns:
+    df_events = df_events[df_events["channel"] == selected_channel]
+
+
+# -------------------------
 # KPIs
 # -------------------------
 col1, col2, col3 = st.columns(3)

@@ -106,10 +106,19 @@ def load_data(start_date, end_date):
     """
 
     query_funnel = f"""
-        SELECT event_type, SUM(users) as users
+        SELECT
+            event_type,
+            SUM(users) as users,
+            CASE
+                WHEN event_type = 'signup' THEN 1
+                WHEN event_type = 'create_project' THEN 2
+                ELSE 3
+            END as step
         FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
         GROUP BY event_type
+        ORDER BY step
     """
+
 
     query_cohort = f"""
         SELECT *
@@ -159,12 +168,12 @@ st.plotly_chart(
         x="event_date",
         y="active_users"
     ),
-    width="stretch"
+    use_container_width=True
 )
 
 
 st.subheader("🔻 Funnel")
-st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), width="stretch")
+st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), use_container_width=True)
 
 # -------------------------
 # ✅ COHORT HEATMAP DESDE BQ
@@ -181,15 +190,16 @@ else:
         aggfunc="mean"
     )
 
-    pivot = (pivot * 100).fillna(0)
+    pivot = (pivot * 100).fillna(0).round(1)
 
-    try:
-        st.dataframe(
-            pivot.style.format("{:.1f}%").background_gradient(cmap="Blues"),
-            use_container_width=True
-        )
-    except Exception:
-        st.dataframe(pivot)
+    fig = px.imshow(
+        pivot,
+        labels=dict(x="Days since signup", y="Cohort", color="Retention %"),
+        aspect="auto",
+        color_continuous_scale="Blues"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)  # ✅ IMPORTANT
 
 # -------------------------
 # AI

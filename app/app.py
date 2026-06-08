@@ -167,13 +167,13 @@ col3.metric("Activation Rate", f"{conversion:.2%}")
 st.subheader("📈 Daily Active Users")
 st.plotly_chart(
     px.line(df_dau, x="event_date", y="active_users"),
-    use_container_width=True
+    width="stretch"
 )
 
 st.subheader("🔻 Funnel")
 st.plotly_chart(
     px.bar(funnel_counts, x="event_type", y="users"),
-    use_container_width=True
+    width="stretch"
 )
 
 # -------------------------

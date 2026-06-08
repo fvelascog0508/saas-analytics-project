@@ -9,35 +9,34 @@ import time
 from google import genai
 
 # -------------------------
+# PATH BASE (CLAVE 🔥)
+# -------------------------
+BASE_PATH = Path(__file__).resolve().parent.parent
+
+# -------------------------
 # LOAD ENV
 # -------------------------
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv(BASE_PATH / ".env")
 
 api_key = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-# api_key = os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
     st.error("❌ API key not loaded")
+    st.stop()
 
 # -------------------------
-# GEMINI CLIENT
+# GEMINI CLIENT (CACHE)
 # -------------------------
-
 @st.cache_resource
 def get_gemini_client():
-    return genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+    return genai.Client(api_key=api_key)
 
 client = get_gemini_client()
 
-st.write("Key exists:", os.getenv("GOOGLE_API_KEY") is not None)
-
-# client = genai.Client(api_key=api_key)
-
 # -------------------------
-# GEMINI FUNCTION (CENTRALIZADA 🔥)
+# GEMINI FUNCTION
 # -------------------------
-def call_gemini(prompt, retries=3):
+def call_gemini(prompt, retries=3, delay=2):
     for i in range(retries):
         try:
             response = client.models.generate_content(
@@ -45,13 +44,11 @@ def call_gemini(prompt, retries=3):
                 contents=prompt,
             )
             return response.text
-
         except Exception as e:
             if i < retries - 1:
-                time.sleep(2)
+                time.sleep(delay)
             else:
-                return f"⚠️ AI error: {str(e)}"
-
+                return "⚠️ AI temporarily unavailable. Please try again."
 
 # -------------------------
 # APP CONFIG
@@ -60,9 +57,9 @@ st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
-# LOAD DATA
+# LOAD DATA (FIXED ✅)
 # -------------------------
-df_events = pd.read_csv("data/events_processed.csv")
+df_events = pd.read_csv(BASE_PATH / "data/events_processed.csv")
 
 if "channel" not in df_events.columns:
     np.random.seed(42)
@@ -217,7 +214,6 @@ st.plotly_chart(
 st.subheader("🤖 AI Insights")
 
 if st.button("Explain this dashboard"):
-
     with st.spinner("Analyzing..."):
 
         prompt = f"""

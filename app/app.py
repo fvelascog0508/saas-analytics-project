@@ -207,6 +207,33 @@ st.plotly_chart(
 )
 
 # -------------------------
+# HEATMAP (Cohort básico)
+# -------------------------
+st.subheader("🔥 Activity Heatmap")
+
+# asegurar formato datetime
+df_events["event_date"] = pd.to_datetime(df_events["event_date"])
+
+# cohort: first event por usuario
+df_events["cohort_date"] = df_events.groupby("user_id")["event_date"].transform("min")
+
+# diferencia en días
+df_events["days_since_signup"] = (
+    df_events["event_date"] - df_events["cohort_date"]
+).dt.days
+
+# pivot table
+cohort_pivot = (
+    df_events
+    .groupby(["cohort_date", "days_since_signup"])["user_id"]
+    .nunique()
+    .reset_index()
+    .pivot(index="cohort_date", columns="days_since_signup", values="user_id")
+)
+
+st.dataframe(cohort_pivot)
+
+# -------------------------
 # AI INSIGHTS
 # -------------------------
 st.subheader("🤖 AI Insights")
@@ -279,5 +306,5 @@ if user_input:
 # DEBUG PANEL (ONLY IF ENABLED)
 # -------------------------
 if DEBUG:
-    st.subheader("⚙️ Query Debug")
-    st.dataframe(pd.DataFrame(metrics))
+    st.sidebar.subheader("⚙️ Query Debug")
+    st.sidebar.dataframe(pd.DataFrame(metrics))

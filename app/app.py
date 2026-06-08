@@ -66,11 +66,11 @@ st.set_page_config(page_title="SaaS Analytics", layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
 
 # -------------------------
-# DATE FILTER (UI)
+# SIDEBAR FILTER
 # -------------------------
 st.sidebar.header("Filters")
 
-# Obtener rango de fechas desde BQ una vez
+# obtener rango de fechas
 @st.cache_data
 def get_date_range():
     query = """
@@ -93,20 +93,25 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
+# ✅ VALIDACIÓN ROBUSTA (CLAVE)
+if not date_range or len(date_range) != 2:
+    st.warning("Please select a valid date range")
+    st.stop()
+
+start_date, end_date = date_range
+
 # -------------------------
-# LOAD FILTERED DATA (BQ)
+# LOAD DATA FROM BQ
 # -------------------------
 @st.cache_data
 def load_data(start_date, end_date):
 
-    # EVENTS (filtrado en origen)
     query_events = f"""
         SELECT *
         FROM `project-ecommerce-497614.saas_analytics.stg_events`
         WHERE event_date BETWEEN '{start_date}' AND '{end_date}'
     """
 
-    # DAU recalculado con filtro
     query_dau = f"""
         SELECT
             event_date,
@@ -117,7 +122,6 @@ def load_data(start_date, end_date):
         ORDER BY event_date
     """
 
-    # funnel recalculado
     query_funnel = f"""
         SELECT
             event_type,
@@ -135,8 +139,6 @@ def load_data(start_date, end_date):
     return df_events, df_dau, df_funnel
 
 
-# ejecutar carga con filtros
-start_date, end_date = date_range
 df_events, df_dau, funnel_counts = load_data(start_date, end_date)
 
 # -------------------------
@@ -145,7 +147,6 @@ df_events, df_dau, funnel_counts = load_data(start_date, end_date)
 col1, col2, col3 = st.columns(3)
 
 total_users = df_events["user_id"].nunique()
-
 avg_events = df_events.groupby("user_id").size().mean()
 
 conversion = 0

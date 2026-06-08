@@ -1,15 +1,15 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import numpy as np
+from google.cloud import bigquery
 from dotenv import load_dotenv
-from pathlib import Path
 import os
+from pathlib import Path
 import time
 from google import genai
 
 # -------------------------
-# PATH BASE (CLAVE 🔥)
+# BASE PATH
 # -------------------------
 BASE_PATH = Path(__file__).resolve().parent.parent
 
@@ -31,162 +31,86 @@ if not api_key:
 def get_gemini_client():
     return genai.Client(api_key=api_key)
 
-client = get_gemini_client()
+client_ai = get_gemini_client()
 
 # -------------------------
 # GEMINI FUNCTION
 # -------------------------
-def call_gemini(prompt, retries=3, delay=2):
+def call_gemini(prompt, retries=3):
     for i in range(retries):
         try:
-            response = client.models.generate_content(
+            response = client_ai.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
             )
             return response.text
-        except Exception as e:
+        except Exception:
             if i < retries - 1:
-                time.sleep(delay)
+                time.sleep(2)
             else:
-                return "⚠️ AI temporarily unavailable. Please try again."
+                return "⚠️ AI unavailable right now."
+
+# -------------------------
+# BIGQUERY CLIENT (CACHE)
+# -------------------------
+@st.cache_resource
+def get_bq_client():
+    return bigquery.Client()
+
+bq = get_bq_client()
+
+# -------------------------
+# LOAD DATA FROM BIGQUERY
+# -------------------------
+@st.cache_data
+def load_data():
+    df_events = bq.query("""
+        SELECT * FROM `project-ecommerce-497614.saas_analytics.stg_events`
+    """).to_dataframe()
+
+    df_dau = bq.query("""
+        SELECT * FROM `project-ecommerce-497614.saas_analytics.fct_dau`
+    """).to_dataframe()
+
+    df_funnel = bq.query("""
+        SELECT * FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
+    """).to_dataframe()
+
+    return df_events, df_dau, df_funnel
+
+df_events, df_dau, funnel_counts = load_data()
 
 # -------------------------
 # APP CONFIG
 # -------------------------
-st.set_page_config(page_title="SaaS Analytics", layout="wide")
+st.set_page_config(layout="wide")
 st.title("📊 SaaS Analytics Dashboard")
-
-# -------------------------
-# LOAD DATA (FIXED ✅)
-# -------------------------
-df_events = pd.read_csv(BASE_PATH / "data/events_processed.csv")
-
-if "channel" not in df_events.columns:
-    np.random.seed(42)
-    df_events["channel"] = np.random.choice(
-        ["organic", "paid_ads", "referral"],
-        size=len(df_events)
-    )
-
-df_events["timestamp"] = pd.to_datetime(df_events["timestamp"])
-df_events["date"] = df_events["timestamp"].dt.date
 
 # -------------------------
 # FILTERS
 # -------------------------
 st.sidebar.header("Filters")
 
-channels = ["All"] + sorted(df_events["channel"].unique())
+channels = ["All"] + sorted(df_events.get("channel", ["unknown"]).unique())
 selected_channel = st.sidebar.selectbox("Channel", channels)
-
-min_date = df_events["timestamp"].min()
-max_date = df_events["timestamp"].max()
-
-date_range = st.sidebar.date_input(
-    "Select date range",
-    [min_date, max_date]
-)
-
-# -------------------------
-# APPLY FILTERS
-# -------------------------
-df_filtered = df_events.copy()
-
-if selected_channel != "All":
-    df_filtered = df_filtered[df_filtered["channel"] == selected_channel]
-
-if len(date_range) == 2:
-    start_date = pd.to_datetime(date_range[0])
-    end_date = pd.to_datetime(date_range[1])
-
-    df_filtered = df_filtered[
-        (df_filtered["timestamp"] >= start_date) &
-        (df_filtered["timestamp"] <= end_date)
-    ]
-
-# -------------------------
-# USERS
-# -------------------------
-df_users = df_filtered.groupby("user_id").agg(
-    total_events=("event_type", "count")
-).reset_index()
-
-# -------------------------
-# DAU
-# -------------------------
-df_dau = df_filtered.groupby("date").agg(
-    active_users=("user_id", "nunique")
-).reset_index()
-
-# -------------------------
-# FUNNEL
-# -------------------------
-funnel_steps = ["signup", "login", "create_project"]
-
-df_funnel = df_filtered[df_filtered["event_type"].isin(funnel_steps)]
-df_funnel_unique = df_funnel.drop_duplicates(subset=["user_id", "event_type"])
-
-funnel_counts = df_funnel_unique.groupby("event_type")["user_id"].nunique().reset_index()
-
-funnel_counts["event_type"] = pd.Categorical(
-    funnel_counts["event_type"],
-    categories=funnel_steps,
-    ordered=True
-)
-
-funnel_counts = funnel_counts.sort_values("event_type")
-
-baseline = funnel_counts.loc[
-    funnel_counts["event_type"] == "signup",
-    "user_id"
-].iloc[0] if len(funnel_counts) > 0 else 1
-
-funnel_counts["conversion_rate"] = funnel_counts["user_id"] / baseline
-
-# -------------------------
-# COHORT
-# -------------------------
-df_cohort = df_filtered.copy()
-
-df_cohort["cohort_date"] = df_cohort.groupby("user_id")["timestamp"].transform("min")
-df_cohort["cohort_month"] = df_cohort["cohort_date"].dt.to_period("M")
-df_cohort["event_month"] = df_cohort["timestamp"].dt.to_period("M")
-
-df_cohort["cohort_index"] = (
-    (df_cohort["event_month"].dt.year - df_cohort["cohort_month"].dt.year) * 12 +
-    (df_cohort["event_month"].dt.month - df_cohort["cohort_month"].dt.month)
-)
-
-cohort_data = df_cohort.groupby(["cohort_month", "cohort_index"]).agg(
-    users=("user_id", "nunique")
-).reset_index()
-
-cohort_pivot = cohort_data.pivot(
-    index="cohort_month",
-    columns="cohort_index",
-    values="users"
-)
-
-cohort_size = cohort_pivot.iloc[:, 0]
-cohort_retention = cohort_pivot.divide(cohort_size, axis=0)
-
-cohort_retention.index = cohort_retention.index.astype(str)
-cohort_retention.columns = cohort_retention.columns.astype(str)
 
 # -------------------------
 # KPIs
 # -------------------------
 col1, col2, col3 = st.columns(3)
 
-total_users = df_users["user_id"].nunique()
-avg_events = df_users["total_events"].mean()
+total_users = df_events["user_id"].nunique()
 
-conversion = funnel_counts.loc[
-    funnel_counts["event_type"] == "create_project",
-    "conversion_rate"
-].iloc[0] if "create_project" in funnel_counts["event_type"].values else 0
+avg_events = df_events.groupby("user_id").size().mean()
 
-col1.metric("Users", total_users)
+conversion = 0
+if "create_project" in funnel_counts["event_type"].values:
+    signup = funnel_counts.loc[funnel_counts["event_type"] == "signup", "users"].values
+    create = funnel_counts.loc[funnel_counts["event_type"] == "create_project", "users"].values
+    if len(signup) > 0:
+        conversion = create[0] / signup[0]
+
+col1.metric("Total Users", total_users)
 col2.metric("Avg Events/User", round(avg_events, 2))
 col3.metric("Activation", f"{conversion:.2%}")
 
@@ -194,44 +118,33 @@ col3.metric("Activation", f"{conversion:.2%}")
 # CHARTS
 # -------------------------
 st.subheader("📈 Daily Active Users")
-st.plotly_chart(px.line(df_dau, x="date", y="active_users"), width="stretch")
+st.plotly_chart(px.line(df_dau, x="event_date", y="active_users"), use_container_width=True)
 
 st.subheader("🔻 Funnel")
-st.plotly_chart(
-    px.bar(funnel_counts, x="event_type", y="user_id", text=funnel_counts["conversion_rate"].round(2)),
-    width="stretch"
-)
-
-st.subheader("🔥 Cohort Retention")
-st.plotly_chart(
-    px.imshow(cohort_retention, text_auto=True, aspect="auto", color_continuous_scale="RdYlGn"),
-    width="stretch"
-)
+st.plotly_chart(px.bar(funnel_counts, x="event_type", y="users"), use_container_width=True)
 
 # -------------------------
-# AI BUTTON
+# AI INSIGHTS
 # -------------------------
 st.subheader("🤖 AI Insights")
 
 if st.button("Explain this dashboard"):
+    prompt = f"""
+    You are a senior product analyst.
+
+    Funnel:
+    {funnel_counts.to_string(index=False)}
+
+    DAU:
+    {df_dau.head(20).to_string(index=False)}
+
+    Provide insights and recommendations.
+    """
+
     with st.spinner("Analyzing..."):
-
-        prompt = f"""
-        You are a senior product analyst.
-
-        Channel: {selected_channel}
-
-        Funnel:
-        {funnel_counts.to_string(index=False)}
-
-        Cohort:
-        {cohort_retention.fillna(0).to_string()}
-
-        Provide insights and actions.
-        """
-
         answer = call_gemini(prompt)
-        st.write(answer)
+
+    st.write(answer)
 
 # -------------------------
 # CHAT
@@ -248,20 +161,17 @@ for msg in st.session_state.messages:
 user_input = st.chat_input("Ask something...")
 
 if user_input:
-
-    st.chat_message("user").write(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
+    st.chat_message("user").write(user_input)
 
     prompt = f"""
     You are a product analyst.
 
-    Channel: {selected_channel}
-
     Funnel:
     {funnel_counts.to_string(index=False)}
 
-    Cohort:
-    {cohort_retention.fillna(0).to_string()}
+    DAU:
+    {df_dau.head(20).to_string(index=False)}
 
     Question:
     {user_input}
@@ -270,7 +180,5 @@ if user_input:
     with st.spinner("Thinking..."):
         answer = call_gemini(prompt)
 
-    with st.chat_message("assistant"):
-        st.write(answer)
-
+    st.chat_message("assistant").write(answer)
     st.session_state.messages.append({"role": "assistant", "content": answer})

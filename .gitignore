@@ -3,10 +3,6 @@ __pycache__/
 *.pyc
 venv/
 
-# Data
-*.csv
-*.parquet
-
 # Environment
 .env
 
@@ -15,3 +11,6 @@ logs/
 
 # OS
 .DS_Store
+
+keys/
+gcp-service-account.json

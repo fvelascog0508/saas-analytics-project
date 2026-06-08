@@ -112,6 +112,13 @@ if not date_range or len(date_range) != 2:
 start_date, end_date = date_range
 
 # -------------------------
+# DEBUG PANEL (ONLY IF ENABLED)
+# -------------------------
+if DEBUG:
+    st.sidebar.subheader("⚙️ Query Debug")
+    st.sidebar.dataframe(pd.DataFrame(metrics))
+
+# -------------------------
 # LOAD DATA
 # -------------------------
 @st.cache_data
@@ -207,31 +214,49 @@ st.plotly_chart(
 )
 
 # -------------------------
-# HEATMAP (Cohort básico)
+# RETENTION COHORT HEATMAP
 # -------------------------
-st.subheader("🔥 Activity Heatmap")
+st.subheader("🔥 Retention Cohort")
 
-# asegurar formato datetime
+# asegurar tipos
 df_events["event_date"] = pd.to_datetime(df_events["event_date"])
 
-# cohort: first event por usuario
+# cohort (primer día activo)
 df_events["cohort_date"] = df_events.groupby("user_id")["event_date"].transform("min")
 
-# diferencia en días
+# días desde el signup
 df_events["days_since_signup"] = (
     df_events["event_date"] - df_events["cohort_date"]
 ).dt.days
 
-# pivot table
-cohort_pivot = (
+# usuarios únicos por cohorte y día
+cohort_data = (
     df_events
     .groupby(["cohort_date", "days_since_signup"])["user_id"]
     .nunique()
     .reset_index()
-    .pivot(index="cohort_date", columns="days_since_signup", values="user_id")
 )
 
-st.dataframe(cohort_pivot)
+# pivot
+cohort_pivot = cohort_data.pivot(
+    index="cohort_date",
+    columns="days_since_signup",
+    values="user_id"
+)
+
+# ✅ NORMALIZAR (clave)
+cohort_size = cohort_pivot.iloc[:, 0]
+retention = cohort_pivot.divide(cohort_size, axis=0)
+
+# convertir a %
+retention = retention * 100
+
+# limitar columnas (opcional, mejora visual)
+retention = retention.iloc[:, :15]
+
+# ✅ HEATMAP REAL
+st.dataframe(retention.style.format("{:.1f}%").background_gradient(cmap="Blues"))
+
 
 # -------------------------
 # AI INSIGHTS
@@ -302,9 +327,4 @@ if user_input:
     st.session_state.messages.append({"role": "assistant", "content": answer})
 
 
-# -------------------------
-# DEBUG PANEL (ONLY IF ENABLED)
-# -------------------------
-if DEBUG:
-    st.sidebar.subheader("⚙️ Query Debug")
-    st.sidebar.dataframe(pd.DataFrame(metrics))
+

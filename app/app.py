@@ -108,13 +108,14 @@ def load_data(start_date, end_date):
     query_funnel = f"""
         SELECT
             event_type,
-            SUM(users) as users,
+            SUM(users) AS users,
             CASE
                 WHEN event_type = 'signup' THEN 1
-                WHEN event_type = 'create_project' THEN 2
-                ELSE 3
-            END as step
+                WHEN event_type = 'login' THEN 2
+                WHEN event_type = 'create_project' THEN 3
+            END AS step
         FROM `project-ecommerce-497614.saas_analytics.fct_funnel`
+        WHERE event_type IN ('signup', 'create_project')
         GROUP BY event_type
         ORDER BY step
     """

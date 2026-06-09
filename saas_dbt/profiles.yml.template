@@ -5,6 +5,14 @@ saas_dbt:
       type: bigquery
       method: service-account
       project: dtc-data-engineering-496009
+      dataset: saas_analytics_dev
+      threads: 1
+      keyfile: /tmp/keyfile.json
+
+    prod:
+      type: bigquery
+      method: service-account
+      project: dtc-data-engineering-496009
       dataset: saas_analytics
       threads: 1
       keyfile: /tmp/keyfile.json

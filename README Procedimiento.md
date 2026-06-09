@@ -224,3 +224,15 @@ En dbt_project.yml -> definir estructura de models
 
             marts:
             +materialized: table
+
+Con packages.yml se definen las dependencias de dbt
+    packages:
+    - package: dbt-labs/dbt_utils
+        version: 1.1.1
+
+dbt deps
+
+
+
+Cuando se modifica sql y se añaden campos o lógica nueva
+    dbt run --full-refresh

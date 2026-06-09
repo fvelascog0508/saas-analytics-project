@@ -6,9 +6,9 @@ on:
       - main
 
   schedule:
-    - cron: "0 7 * * *"   # todos los días a las 07:00 UTC
+    - cron: "0 7 * * *"   # daily at 07:00 UTC
 
-  workflow_dispatch:      # botón manual
+  workflow_dispatch:
 
 jobs:
   run-dbt:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -27,11 +27,27 @@ jobs:
         run: |
           pip install dbt-bigquery
 
-      - name: Create credentials file
+      - name: Create GCP credentials file
         env:
           BIGQUERY_KEY: ${{ secrets.BIGQUERY_KEY }}
         run: |
           echo "$BIGQUERY_KEY" > /tmp/keyfile.json
+
+      # ✅ ESTE ES EL BLOQUE CLAVE QUE TE FALLABA
+      - name: Create dbt profile
+        run: |
+          mkdir -p ~/.dbt
+          echo "saas_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: dtc-data-engineering-496009
+      dataset: saas_analytics
+      threads: 1
+      keyfile: /tmp/keyfile.json
+" > ~/.dbt/profiles.yml
 
       - name: Run dbt pipeline
         env:

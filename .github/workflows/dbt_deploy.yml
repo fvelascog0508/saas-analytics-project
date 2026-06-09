@@ -1,0 +1,45 @@
+name: dbt deploy (run on merge)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  run-dbt:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dbt
+        run: |
+          pip install dbt-bigquery
+
+      - name: Create GCP credentials file
+        env:
+          BIGQUERY_KEY: ${{ secrets.BIGQUERY_KEY }}
+        run: |
+          echo "$BIGQUERY_KEY" > /tmp/keyfile.json
+
+      - name: Setup dbt profile
+        run: |
+          mkdir -p ~/.dbt
+          cp saas_dbt/profiles.yml.template ~/.dbt/profiles.yml
+
+      - name: Run dbt
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/keyfile.json
+        run: |
+          cd saas_dbt
+          dbt deps
+          dbt run
+          dbt test

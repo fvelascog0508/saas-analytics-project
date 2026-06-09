@@ -2,17 +2,30 @@ version: 2
 
 models:
   - name: fct_cohort
+    description: >
+      Cohort retention model measuring user activity over time.
+      Each row represents the number of users from a given cohort
+      active at a specific number of days since their first event.
 
     columns:
       - name: cohort_date
+        description: "Date of first user activity (cohort entry point)"
         tests:
           - not_null
 
       - name: days_since_signup
+        description: "Days elapsed since the user's first activity"
         tests:
           - not_null
 
+      - name: users
+        description: "Number of unique users active on that day"
+      
+      - name: cohort_size
+        description: "Total number of users in the cohort (day 0 users)"
+
       - name: retention_rate
+        description: "Percentage of retained users (users / cohort_size)"
         tests:
           - not_null
           - dbt_utils.accepted_range:

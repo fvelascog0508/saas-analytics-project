@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: fct_dau
+    description: "Daily active users metric"
+
+    columns:
+      - name: event_date
+        description: "Date of activity"
+
+      - name: active_users
+        description: "Number of distinct users active on that day"

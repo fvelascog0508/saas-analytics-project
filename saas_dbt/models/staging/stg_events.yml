@@ -2,24 +2,27 @@ version: 2
 
 models:
   - name: stg_events
-    description: "Cleaned events data"
+    description: "Cleaned events dataset with normalized event types"
 
     columns:
       - name: user_id
-        description: "User identifier"
-        tests:
-          - not_null
-
-      - name: event_date
-        description: "Event date"
+        description: "Unique user identifier"
         tests:
           - not_null
 
       - name: event_type
-        description: "Event type"
+        description: >
+          Normalized event type grouped into:
+          - signup
+          - create_project
+          - other
         tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['signup', 'create_project', 'other']
 
+      - name: event_date
+        description: "Date when the event occurred"
+        tests:
+          - not_null

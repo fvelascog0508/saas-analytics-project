@@ -1,0 +1,11 @@
+saas_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: dtc-data-engineering-496009
+      dataset: saas_analytics
+      threads: 1
+      keyfile: /tmp/keyfile.json
+``

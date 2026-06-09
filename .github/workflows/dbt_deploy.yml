@@ -41,5 +41,4 @@ jobs:
         run: |
           cd saas_dbt
           dbt deps
-          dbt run
-          dbt test
+          dbt build --target prod

@@ -56,4 +56,4 @@ jobs:
         run: |
           cd saas_dbt
           dbt deps
-          dbt test
+          dbt build --target dev

@@ -8,4 +8,3 @@ saas_dbt:
       dataset: saas_analytics
       threads: 1
       keyfile: /tmp/keyfile.json
-``

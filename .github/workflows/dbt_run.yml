@@ -32,16 +32,25 @@ jobs:
         run: |
           echo "$BIGQUERY_KEY" > /tmp/keyfile.json
 
-      # ✅ Usamos TEMPLATE correctamente
+      # ✅ Crear profile desde TEMPLATE (CLAVE)
       - name: Create dbt profile
         run: |
           mkdir -p ~/.dbt
-          cp saas_dbt/profiles.yml.template ~/.dbt/profiles.yml
+          cat saas_dbt/profiles.yml.template > ~/.dbt/profiles.yml
 
-      # ✅ (opcional pero muy recomendable) DEBUG para confirmar dataset
-      - name: Debug profile
+      # ✅ DEBUG (MUY IMPORTANTE TEMPORAL)
+      - name: Debug dbt profile
         run: |
+          echo "==== profiles.yml ===="
           cat ~/.dbt/profiles.yml
+
+      # ✅ DEBUG CONFIG REAL DE DBT (CLAVE)
+      - name: Debug dbt config
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/keyfile.json
+        run: |
+          cd saas_dbt
+          dbt debug
 
       - name: Run dbt pipeline
         env:

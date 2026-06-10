@@ -41,26 +41,33 @@ aggregated AS (
         days_since_signup,
         COUNT(DISTINCT user_id) AS users
     FROM filtered
+    WHERE days_since_signup >= 0   -- ✅ evita eventos antes del signup
     GROUP BY 1,2
+
+),
+
+-- ✅ NUEVO: cohort_size correcto desde first_events
+cohort_size AS (
+
+    SELECT
+        cohort_date,
+        COUNT(DISTINCT user_id) AS cohort_size
+    FROM {{ ref('int_first_events') }}
+    GROUP BY cohort_date
 
 )
 
 SELECT
-    cohort_date,
-    days_since_signup,
-    users,
-
-    FIRST_VALUE(users) OVER (
-        PARTITION BY cohort_date
-        ORDER BY days_since_signup
-    ) AS cohort_size,
+    a.cohort_date,
+    a.days_since_signup,
+    a.users,
+    cs.cohort_size,
 
     SAFE_DIVIDE(
-        users,
-        FIRST_VALUE(users) OVER (
-            PARTITION BY cohort_date
-            ORDER BY days_since_signup
-        )
+        a.users,
+        cs.cohort_size
     ) AS retention_rate
 
-FROM aggregated
+FROM aggregated a
+JOIN cohort_size cs
+    ON a.cohort_date = cs.cohort_date

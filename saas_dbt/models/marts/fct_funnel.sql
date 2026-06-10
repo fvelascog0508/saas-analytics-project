@@ -22,4 +22,3 @@ WHERE event_date >= (
 {% endif %}
 
 GROUP BY event_date, event_type
-``

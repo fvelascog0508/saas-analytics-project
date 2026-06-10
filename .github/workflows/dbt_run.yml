@@ -13,7 +13,6 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,22 +32,16 @@ jobs:
         run: |
           echo "$BIGQUERY_KEY" > /tmp/keyfile.json
 
-      # ✅ ESTE ES EL BLOQUE CLAVE QUE TE FALLABA
+      # ✅ Usamos TEMPLATE correctamente
       - name: Create dbt profile
         run: |
           mkdir -p ~/.dbt
-          cat <<EOF > ~/.dbt/profiles.yml
-          saas_dbt:
-            target: dev
-            outputs:
-              dev:
-                type: bigquery
-                method: service-account
-                project: dtc-data-engineering-496009
-                dataset: saas_analytics
-                threads: 1
-                keyfile: /tmp/keyfile.json
-          EOF
+          cp saas_dbt/profiles.yml.template ~/.dbt/profiles.yml
+
+      # ✅ (opcional pero muy recomendable) DEBUG para confirmar dataset
+      - name: Debug profile
+        run: |
+          cat ~/.dbt/profiles.yml
 
       - name: Run dbt pipeline
         env:

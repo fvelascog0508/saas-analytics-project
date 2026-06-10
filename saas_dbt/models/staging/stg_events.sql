@@ -1,11 +1,22 @@
 {{ config(
     materialized='incremental',
+    unique_key=['user_id','event_date','event_type'],
     partition_by={
         "field": "event_date",
         "data_type": "date"
     },
     cluster_by=["user_id", "event_type"]
 ) }}
+
+WITH source AS (
+
+    SELECT
+        user_id,
+        event_type,
+        DATE(timestamp) AS event_date
+    FROM {{ source('raw', 'events_raw') }}
+
+)
 
 SELECT
     user_id,
@@ -16,15 +27,15 @@ SELECT
         ELSE 'other'
     END AS event_type,
 
-    DATE(timestamp) AS event_date
+    event_date
 
-FROM {{ source('raw', 'events_raw') }}
+FROM source
 
--- 🔥 clave incremental
 {% if is_incremental() %}
 
-WHERE DATE(timestamp) > (
-    SELECT MAX(event_date) FROM {{ this }}
+WHERE event_date >= (
+    SELECT DATE_SUB(MAX(event_date), INTERVAL 2 DAY)
+    FROM {{ this }}
 )
 
 {% endif %}

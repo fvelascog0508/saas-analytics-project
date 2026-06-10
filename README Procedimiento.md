@@ -236,3 +236,122 @@ dbt deps
 
 Cuando se modifica sql y se añaden campos o lógica nueva
     dbt run --full-refresh
+
+
+
+
+## Automatización en GitHub actions
+Crear .github/workflows/dbt_run.yml
+
+name: dbt pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  schedule:
+    - cron: "0 7 * * *"   # todos los días a las 07:00 UTC
+
+  workflow_dispatch:      # botón manual
+
+jobs:
+  run-dbt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dbt
+        run: |
+          pip install dbt-bigquery
+
+      - name: Create credentials file
+        env:
+          BIGQUERY_KEY: ${{ secrets.BIGQUERY_KEY }}
+        run: |
+          echo "$BIGQUERY_KEY" > /tmp/keyfile.json
+
+      - name: Run dbt pipeline
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/keyfile.json
+        run: |
+          cd saas_dbt
+          dbt deps
+          dbt run
+          dbt test
+
+
+Configurar credenciales
+    Ve a tu repo
+    Settings → Secrets → Actions
+    Create new secret
+
+    
+    {
+    "type": "service_account",
+    "project_id": "...",
+    ...
+    }
+
+
+Se hace push al repo y directamente se ejecuta y se queda programado
+
+
+on:
+  push:
+    branches:
+      - main
+
+  schedule:
+    - cron: "0 7 * * *"
+
+  workflow_dispatch:
+
+
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+
+
+Para hacer incrementales
+{{ config(
+    materialized='incremental',                         -> tipo incremental
+    unique_key=['user_id','event_date','event_type'],   -> clave única para evitar duplicados
+    partition_by={                                      -> mejora rendimiento
+        "field": "event_date",
+        "data_type": "date"
+    },
+    cluster_by=["user_id", "event_type"]                -> mejora filtros
+) }}
+
+{% if is_incremental() %}
+
+WHERE event_date >= (
+    SELECT DATE_SUB(MAX(event_date), INTERVAL 2 DAY)    -> reprocesa los últimos dos días por si entran datos retrasados
+    FROM {{ this }}                                     -> hace referencia a la sql completa stg_events.sql
+)
+
+{% endif %}
+
+Cuando se añade la unique_key al incremental DBT convierte el insert en un merge:
+MERGE target_table t
+USING new_data s
+ON t.unique_key = s.unique_key
+
+WHEN MATCHED THEN UPDATE
+WHEN NOT MATCHED THEN INSERT
+
+✔ si la fila existe → la actualiza
+✔ si no existe → la inserta

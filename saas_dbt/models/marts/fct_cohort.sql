@@ -71,3 +71,4 @@ SELECT
 FROM aggregated a
 JOIN cohort_size cs
     ON a.cohort_date = cs.cohort_date
+    
